@@ -3,8 +3,10 @@ import Phaser from 'phaser';
 export const GameConfig = {
   width: 800,
   height: 600,
-  tileSize: 32,
+  tileSize: 16,
+  tileScale: 4,
   playerSpeed: 160,
+  tweenDuration: 150, // ms per tile movement
   colors: {
     primary: 0x4a90e2,
     secondary: 0xe24a4a,
@@ -13,6 +15,10 @@ export const GameConfig = {
     wall: 0x16213e,
     floor: 0x0f3460,
     player: 0xffd700,
+    plate: 0x9d4edd,
+    lever: 0xffb703,
+    door: 0xfb5607,
+    exit: 0x06ffa5,
     text: 0xffffff
   }
 };

@@ -77,13 +77,11 @@ export class TitleScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.cursors.up!)) {
       this.selectedOption = (this.selectedOption - 1 + this.menuOptions.length) % this.menuOptions.length;
       this.updateSelection();
-      this.sound.play('blip', { volume: 0.3 });
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.cursors.down!)) {
       this.selectedOption = (this.selectedOption + 1) % this.menuOptions.length;
       this.updateSelection();
-      this.sound.play('blip', { volume: 0.3 });
     }
 
     // Select option
@@ -107,7 +105,7 @@ export class TitleScene extends Phaser.Scene {
   private selectOption(): void {
     switch (this.selectedOption) {
       case 0: // Start Game
-        this.scene.start(SceneKeys.Game, { levelIndex: 0 });
+        this.scene.start(SceneKeys.Game, { levelId: 'level1' });
         break;
       case 1: // Level Select
         this.scene.start(SceneKeys.LevelSelect);
