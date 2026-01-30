@@ -1,0 +1,65 @@
+{
+  "id": "level3",
+  "name": "Lever Puzzle",
+  "width": 11,
+  "height": 9,
+  "tilemap": [
+    "###########",
+    "#.........#",
+    "#.###.....#",
+    "#...#.....#",
+    "#...#.....#",
+    "#...###...#",
+    "#.........#",
+    "#.........#",
+    "###########"
+  ],
+  "playerStart": { "x": 1, "y": 1 },
+  "exitPos": { "x": 9, "y": 6 },
+  "entities": [
+    {
+      "type": "lever",
+      "x": 5,
+      "y": 1,
+      "id": "lever-1",
+      "data": {
+        "startState": "closed"
+      }
+    },
+    {
+      "type": "lever",
+      "x": 8,
+      "y": 1,
+      "id": "lever-2",
+      "data": {
+        "startState": "closed"
+      }
+    },
+    {
+      "type": "door",
+      "x": 5,
+      "y": 2,
+      "id": "door-1",
+      "data": {
+        "triggeredBy": ["lever-1"],
+        "startState": "closed"
+      }
+    },
+    {
+      "type": "door",
+      "x": 5,
+      "y": 5,
+      "id": "door-2",
+      "data": {
+        "triggeredBy": ["lever-2"],
+        "startState": "closed"
+      }
+    },
+    {
+      "type": "exit-gate",
+      "x": 9,
+      "y": 6,
+      "id": "exit-1"
+    }
+  ]
+}

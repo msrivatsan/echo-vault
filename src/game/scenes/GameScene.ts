@@ -1,63 +1,84 @@
 import Phaser from 'phaser';
 import { SceneKeys, GameConfig } from '../config';
-
-interface LevelData {
-  width: number;
-  height: number;
-  tiles: number[][];
-  playerStart: { x: number; y: number };
-}
+import { LevelData, GameState } from '../types';
+import { LevelLoader } from '../LevelLoader';
+import { Player } from '../entities/Player';
+import { Door } from '../entities/Door';
+import { Lever } from '../entities/Lever';
+import { PressurePlate } from '../entities/PressurePlate';
+import { ExitGate } from '../entities/ExitGate';
 
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.Physics.Arcade.Sprite;
+  private currentLevel!: LevelData;
+  private currentLevelId: string = 'level1';
+  private player!: Player;
+  private entities: Map<string, Door | Lever | PressurePlate | ExitGate> = new Map();
+  private gameState!: GameState;
+  private levelOffsetX: number = 0;
+  private levelOffsetY: number = 0;
+  private isWon: boolean = false;
+
+  // Input
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
-  private wasdKeys!: {
-    W: Phaser.Input.Keyboard.Key;
-    A: Phaser.Input.Keyboard.Key;
-    S: Phaser.Input.Keyboard.Key;
-    D: Phaser.Input.Keyboard.Key;
-  };
+  private wasdKeys!: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key };
   private escKey!: Phaser.Input.Keyboard.Key;
   private rKey!: Phaser.Input.Keyboard.Key;
-  private walls!: Phaser.Physics.Arcade.StaticGroup;
-  private currentLevel!: LevelData;
+  private hKey!: Phaser.Input.Keyboard.Key;
+  private tildaKey!: Phaser.Input.Keyboard.Key;
 
   constructor() {
     super({ key: SceneKeys.Game });
   }
 
-  init(_data: { levelIndex?: number }): void {
-    // levelIndex will be used for loading different levels in future
-    // For now, we just load the test level
+  init(data: { levelId?: string }): void {
+    if (data?.levelId) {
+      this.currentLevelId = data.levelId;
+    }
   }
 
-  create(): void {
-    // Load test level
-    this.currentLevel = this.getTestLevel();
+  async create(): Promise<void> {
+    try {
+      // Load level
+      this.currentLevel = await LevelLoader.loadLevel(this.currentLevelId);
 
-    // Create level
-    this.createLevel();
+      // Initialize game state
+      this.initGameState();
 
-    // Create player
-    this.createPlayer();
+      // Create level visuals
+      this.createLevelVisuals();
 
-    // Setup input
-    this.setupInput();
+      // Create entities
+      this.createEntities();
 
-    // Launch UI scene
-    this.scene.launch(SceneKeys.UI, { gameScene: this });
+      // Create player
+      this.createPlayer();
 
-    // Add instructions
-    this.add.text(10, 10, 'WASD/Arrows: Move | ESC: Pause | R: Reset', {
-      fontSize: '14px',
-      color: '#ffffff',
-      fontFamily: 'Courier New',
-      backgroundColor: '#000000',
-      padding: { x: 8, y: 4 }
-    });
+      // Setup input
+      this.setupInput();
+
+      // Launch UI scene
+      this.scene.launch(SceneKeys.UI, {
+        gameScene: this,
+        levelName: this.currentLevel.name
+      });
+
+      // Add instructions
+      this.add.text(10, 10, 'WASD/Arrows: Move | R: Reset | ESC: Pause | H: Hints | ~: Debug', {
+        fontSize: '12px',
+        color: '#ffffff',
+        fontFamily: 'Courier New',
+        backgroundColor: '#000000',
+        padding: { x: 8, y: 4 }
+      });
+    } catch (error) {
+      console.error('Failed to load level:', error);
+      this.scene.start(SceneKeys.Title);
+    }
   }
 
   update(): void {
+    if (this.isWon) return;
+
     this.handlePlayerMovement();
 
     // Reset level
@@ -70,42 +91,99 @@ export class GameScene extends Phaser.Scene {
       this.scene.pause();
       this.scene.get(SceneKeys.UI).events.emit('show-pause-menu');
     }
+
+    // Hint toggle (sent to UI)
+    if (Phaser.Input.Keyboard.JustDown(this.hKey)) {
+      this.scene.get(SceneKeys.UI).events.emit('toggle-hints');
+    }
+
+    // Debug panel toggle
+    if (Phaser.Input.Keyboard.JustDown(this.tildaKey)) {
+      this.scene.get(SceneKeys.UI).events.emit('toggle-debug');
+    }
   }
 
-  private createLevel(): void {
-    const { tiles, width, height } = this.currentLevel;
-    const tileSize = GameConfig.tileSize;
+  private initGameState(): void {
+    this.gameState = {
+      currentLevelId: this.currentLevelId,
+      playerPos: { ...this.currentLevel.playerStart },
+      entityStates: new Map(),
+      isMoving: false,
+      isGameOver: false,
+      isGameWon: false,
+      activeTriggers: new Set()
+    };
+  }
 
-    // Calculate camera bounds
+  private createLevelVisuals(): void {
+    const { width, height } = this.currentLevel;
+    const tileSize = GameConfig.tileSize * GameConfig.tileScale;
+
+    // Calculate offsets to center the level
     const levelWidth = width * tileSize;
     const levelHeight = height * tileSize;
+    this.levelOffsetX = (GameConfig.width - levelWidth) / 2;
+    this.levelOffsetY = (GameConfig.height - levelHeight) / 2;
 
-    // Center the level on screen
-    const offsetX = (GameConfig.width - levelWidth) / 2;
-    const offsetY = (GameConfig.height - levelHeight) / 2;
-
-    // Create walls group
-    this.walls = this.physics.add.staticGroup();
-
-    // Build level from tile data
+    // Draw floor and walls
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        const tile = tiles[y][x];
-        const worldX = offsetX + x * tileSize + tileSize / 2;
-        const worldY = offsetY + y * tileSize + tileSize / 2;
+        const worldX = this.levelOffsetX + x * tileSize + tileSize / 2;
+        const worldY = this.levelOffsetY + y * tileSize + tileSize / 2;
 
-        switch (tile) {
-          case 0: // Floor
-            this.add.image(worldX, worldY, 'floor');
-            break;
-          case 1: // Wall
-            const wall = this.add.image(worldX, worldY, 'wall');
-            this.walls.add(wall);
-            break;
-          case 2: // Goal
-            this.add.image(worldX, worldY, 'floor');
-            this.add.image(worldX, worldY, 'goal');
-            break;
+        const tile = this.currentLevel.tilemap[y][x];
+
+        if (tile === '#') {
+          // Wall
+          this.add.image(worldX, worldY, 'wall');
+        } else {
+          // Floor for all other tiles
+          this.add.image(worldX, worldY, 'floor');
+        }
+      }
+    }
+  }
+
+  private createEntities(): void {
+    for (const placement of this.currentLevel.entities) {
+      const worldX = this.levelOffsetX + placement.x * GameConfig.tileSize * GameConfig.tileScale + GameConfig.tileSize * GameConfig.tileScale / 2;
+      const worldY = this.levelOffsetY + placement.y * GameConfig.tileSize * GameConfig.tileScale + GameConfig.tileSize * GameConfig.tileScale / 2;
+
+      const graphics = this.add.graphics().setPosition(worldX, worldY);
+
+      switch (placement.type) {
+        case 'pressure-plate': {
+          const plate = new PressurePlate(placement.id, placement.x, placement.y, graphics);
+          this.entities.set(placement.id, plate);
+          break;
+        }
+        case 'door': {
+          const door = new Door(
+            placement.id,
+            placement.x,
+            placement.y,
+            graphics,
+            placement.data?.triggeredBy || [],
+            placement.data?.startState || 'closed'
+          );
+          this.entities.set(placement.id, door);
+          break;
+        }
+        case 'lever': {
+          const lever = new Lever(
+            placement.id,
+            placement.x,
+            placement.y,
+            graphics,
+            placement.data?.startState || 'closed'
+          );
+          this.entities.set(placement.id, lever);
+          break;
+        }
+        case 'exit-gate': {
+          const exitGate = new ExitGate(placement.id, placement.x, placement.y, graphics);
+          this.entities.set(placement.id, exitGate);
+          break;
         }
       }
     }
@@ -113,23 +191,11 @@ export class GameScene extends Phaser.Scene {
 
   private createPlayer(): void {
     const { playerStart } = this.currentLevel;
-    const tileSize = GameConfig.tileSize;
+    const worldX = this.levelOffsetX + playerStart.x * GameConfig.tileSize * GameConfig.tileScale + GameConfig.tileSize * GameConfig.tileScale / 2;
+    const worldY = this.levelOffsetY + playerStart.y * GameConfig.tileSize * GameConfig.tileScale + GameConfig.tileSize * GameConfig.tileScale / 2;
 
-    // Calculate player position
-    const levelWidth = this.currentLevel.width * tileSize;
-    const levelHeight = this.currentLevel.height * tileSize;
-    const offsetX = (GameConfig.width - levelWidth) / 2;
-    const offsetY = (GameConfig.height - levelHeight) / 2;
-
-    const playerX = offsetX + playerStart.x * tileSize + tileSize / 2;
-    const playerY = offsetY + playerStart.y * tileSize + tileSize / 2;
-
-    // Create player sprite
-    this.player = this.physics.add.sprite(playerX, playerY, 'player');
-    this.player.setCollideWorldBounds(true);
-
-    // Add collision with walls
-    this.physics.add.collider(this.player, this.walls);
+    const playerSprite = this.physics.add.sprite(worldX, worldY, 'player');
+    this.player = new Player('player', playerStart.x, playerStart.y, playerSprite);
   }
 
   private setupInput(): void {
@@ -142,52 +208,126 @@ export class GameScene extends Phaser.Scene {
     };
     this.escKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
     this.rKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+    this.hKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.H);
+    this.tildaKey = this.input.keyboard!.addKey('`');
   }
 
   private handlePlayerMovement(): void {
-    const speed = GameConfig.playerSpeed;
-    let velocityX = 0;
-    let velocityY = 0;
+    if (this.player.isMoving) return;
+
+    let moveX = 0;
+    let moveY = 0;
 
     // Horizontal movement
     if (this.cursors.left?.isDown || this.wasdKeys.A.isDown) {
-      velocityX = -speed;
+      moveX = -1;
     } else if (this.cursors.right?.isDown || this.wasdKeys.D.isDown) {
-      velocityX = speed;
+      moveX = 1;
     }
 
     // Vertical movement
     if (this.cursors.up?.isDown || this.wasdKeys.W.isDown) {
-      velocityY = -speed;
+      moveY = -1;
     } else if (this.cursors.down?.isDown || this.wasdKeys.S.isDown) {
-      velocityY = speed;
+      moveY = 1;
     }
 
-    this.player.setVelocity(velocityX, velocityY);
+    // Only move if there's input
+    if (moveX !== 0 || moveY !== 0) {
+      this.attemptMove(moveX, moveY);
+    }
   }
 
-  private getTestLevel(): LevelData {
-    // Test room: a simple box with walls around the perimeter
-    // 0 = floor, 1 = wall, 2 = goal
-    return {
-      width: 15,
-      height: 12,
-      tiles: [
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1],
-        [1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1],
-        [1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-      ],
-      playerStart: { x: 2, y: 2 }
-    };
+  private attemptMove(moveX: number, moveY: number): void {
+    const newX = this.player.gridX + moveX;
+    const newY = this.player.gridY + moveY;
+
+    // Check bounds
+    if (newX < 0 || newX >= this.currentLevel.width || newY < 0 || newY >= this.currentLevel.height) {
+      return;
+    }
+
+    // Check wall collision
+    const tile = this.currentLevel.tilemap[newY][newX];
+    if (tile === '#') {
+      return;
+    }
+
+    // Check entity collision (doors, etc)
+    const blockedByEntity = this.checkEntityCollision(newX, newY);
+    if (blockedByEntity) {
+      return;
+    }
+
+    // Move player
+    this.player.moveToGrid(newX, newY, this).then(() => {
+      this.updateWorldState();
+    });
+  }
+
+  private checkEntityCollision(gridX: number, gridY: number): boolean {
+    for (const entity of this.entities.values()) {
+      if (entity.gridX === gridX && entity.gridY === gridY && entity.blocksMovement) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private updateWorldState(): void {
+    // Update player position
+    this.gameState.playerPos = { x: this.player.gridX, y: this.player.gridY };
+
+    // Check plate collisions
+    for (const entity of this.entities.values()) {
+      if (entity instanceof PressurePlate) {
+        if (entity.gridX === this.player.gridX && entity.gridY === this.player.gridY) {
+          entity.activate();
+          this.gameState.activeTriggers.add(entity.id);
+        } else {
+          entity.deactivate();
+          this.gameState.activeTriggers.delete(entity.id);
+        }
+      }
+    }
+
+    // Update door states based on triggers
+    this.updateDoors();
+
+    // Check win condition
+    this.checkWinCondition();
+
+    // Update UI
+    this.scene.get(SceneKeys.UI).events.emit('update-game-state', this.gameState);
+  }
+
+  private updateDoors(): void {
+    for (const entity of this.entities.values()) {
+      if (entity instanceof Door) {
+        const triggersActive = entity.triggeredBy.some(triggerId => this.gameState.activeTriggers.has(triggerId));
+        entity.setOpen(triggersActive);
+      }
+    }
+  }
+
+  private checkWinCondition(): void {
+    const exitGate = Array.from(this.entities.values()).find(e => e instanceof ExitGate) as ExitGate | undefined;
+    if (!exitGate) return;
+
+    // Check if all doors are open or if exit gate is open
+    const allDoorsOpen = Array.from(this.entities.values())
+      .filter(e => e instanceof Door)
+      .every(e => (e as Door).isOpen);
+
+    if (allDoorsOpen) {
+      exitGate.open();
+    }
+
+    // Check if player is on exit
+    if (exitGate.isOpen && this.player.gridX === exitGate.gridX && this.player.gridY === exitGate.gridY) {
+      this.isWon = true;
+      this.scene.get(SceneKeys.UI).events.emit('game-won');
+    }
   }
 
   public resetLevel(): void {
@@ -197,5 +337,22 @@ export class GameScene extends Phaser.Scene {
   public exitToMenu(): void {
     this.scene.stop(SceneKeys.UI);
     this.scene.start(SceneKeys.Title);
+  }
+
+  public getGameState(): GameState {
+    return this.gameState;
+  }
+
+  public getEntities(): Map<string, Door | Lever | PressurePlate | ExitGate> {
+    return this.entities;
+  }
+
+  public getPlayer(): Player {
+    return this.player;
+  }
+
+  public loadLevel(levelId: string): void {
+    this.scene.stop(SceneKeys.UI);
+    this.scene.start(SceneKeys.Game, { levelId });
   }
 }

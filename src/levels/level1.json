@@ -1,0 +1,45 @@
+{
+  "id": "level1",
+  "name": "First Steps",
+  "width": 10,
+  "height": 8,
+  "tilemap": [
+    "##########",
+    "#........#",
+    "#.##.....#",
+    "#........#",
+    "#.....P..#",
+    "#.#......#",
+    "#........#",
+    "##########"
+  ],
+  "playerStart": { "x": 1, "y": 1 },
+  "exitPos": { "x": 8, "y": 6 },
+  "entities": [
+    {
+      "type": "pressure-plate",
+      "x": 5,
+      "y": 4,
+      "id": "plate-1",
+      "data": {
+        "hint": "A pressure plate activates when stepped on"
+      }
+    },
+    {
+      "type": "door",
+      "x": 8,
+      "y": 6,
+      "id": "door-1",
+      "data": {
+        "triggeredBy": ["plate-1"],
+        "startState": "closed"
+      }
+    },
+    {
+      "type": "exit-gate",
+      "x": 8,
+      "y": 6,
+      "id": "exit-1"
+    }
+  ]
+}
